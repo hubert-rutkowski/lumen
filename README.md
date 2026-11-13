@@ -2,6 +2,10 @@
 
 Automatic screen brightness for Windows laptops, driven by a curve you shape yourself.
 
+[![Release](https://img.shields.io/github/v/release/hubert-rutkowski/lumen)](https://github.com/hubert-rutkowski/lumen/releases/latest)
+[![License](https://img.shields.io/github/license/hubert-rutkowski/lumen)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows%2011-blue)
+
 ![Lumen](docs/lumen-dark.png)
 
 Windows adjusts brightness to ambient light along a fixed curve that cannot be changed. Lumen replaces it: it reads the ambient light sensor and sets the screen brightness along a curve you edit like an equalizer.
@@ -29,9 +33,11 @@ Windows adjusts brightness to ambient light along a fixed curve that cannot be c
 
 ## Getting started
 
-1. Download the repository as a ZIP file and extract it anywhere, or clone it.
+1. Download `Lumen.zip` from the [latest release](https://github.com/hubert-rutkowski/lumen/releases/latest) and extract it anywhere.
 2. Turn off the built-in automatic brightness in **Settings > System > Display > Brightness > Change brightness automatically when lighting changes**. Otherwise the two mechanisms keep correcting each other.
 3. Run `Lumen.cmd`.
+
+Lumen is a plain PowerShell script that you can read before running it. The launcher starts it with `-ExecutionPolicy Bypass`, which applies to that one process only and does not change any system setting.
 
 Closing the window keeps Lumen running in the tray. To quit, use **Quit** in the side panel, the tray icon menu, or `Quit Lumen.cmd`.
 
@@ -65,3 +71,23 @@ Profiles and settings are stored in `settings.json` next to the script and are c
 ## Uninstalling
 
 Turn off **Start at sign-in** in the side panel, quit Lumen and delete the folder.
+
+## Development
+
+The whole program is the single file `Lumen.ps1`. Run the built-in tests after a change:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Lumen.ps1 -SelfTest
+```
+
+The window can also be drawn to an image without showing it, which is useful for checking the layout:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Lumen.ps1 -RenderTo window.png -RenderTheme dark -RenderState drawer
+```
+
+Bug reports and pull requests are welcome in the [issue tracker](https://github.com/hubert-rutkowski/lumen/issues).
+
+## License
+
+[MIT](LICENSE)
