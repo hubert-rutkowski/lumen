@@ -3,6 +3,12 @@
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-11-13
+
+### Fixed
+
+- Tone values showed 0 after startup when the loaded profile had a tone adjustment.
+
 ## [1.0.0] - 2026-11-13
 
 ### Added
@@ -16,4 +22,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Recovery from a damaged settings file with a backup copy.
 - Built-in self-test and dry-run mode.
 
+[1.0.1]: https://github.com/hubert-rutkowski/lumen/releases/tag/v1.0.1
 [1.0.0]: https://github.com/hubert-rutkowski/lumen/releases/tag/v1.0.0

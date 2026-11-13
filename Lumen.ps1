@@ -2039,7 +2039,6 @@ for ($j = 0; $j -lt 4; $j++) {
     $val.Style = $window.Resources['Small']
     $val.HorizontalAlignment = 'Right'
     $val.VerticalAlignment = 'Bottom'
-    $val.Text = '0'
     [Windows.Documents.Typography]::SetNumeralAlignment($val, 'Tabular')
     [void]$head.Children.Add($name)
     [void]$head.Children.Add($val)
@@ -2075,6 +2074,7 @@ for ($j = 0; $j -lt 4; $j++) {
     $ToneSliders += $s
     $ToneLabels += $val
     $ToneFills += $fill
+    Set-ToneLabel $j $Active.Tone[$j]
     $s.Add_SizeChanged({
         param($sender, $e)
         Update-ToneFill ([int]$sender.Tag)
