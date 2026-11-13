@@ -120,19 +120,40 @@ function Get-SmoothStep([double]$A, [double]$B, [double]$X) {
     return $u * $u * (3 - 2 * $u)
 }
 
+function Get-TonedValue([int]$Value, [int[]]$Tone, [double]$Position) {
+    $gain = [Math]::Pow(2, $Tone[1] / 100.0)
+    $v = $Value + $Tone[0] * 0.4
+    $v = 50 + ($v - 50) * $gain
+    $v += $Tone[3] * 0.4 * (1 - (Get-SmoothStep 0 0.6 $Position))
+    $v += $Tone[2] * 0.4 * (Get-SmoothStep 0.4 1 $Position)
+    return [int][Math]::Round([Math]::Min([double]100, [Math]::Max([double]0, [double]$v)))
+}
+
 function Get-TonedValues([int[]]$Base, [int[]]$Tone) {
     $n = $Base.Length
     $out = New-Object int[] $n
-    $gain = [Math]::Pow(2, $Tone[1] / 100.0)
     for ($i = 0; $i -lt $n; $i++) {
-        $t = $i / [double]($n - 1)
-        $v = $Base[$i] + $Tone[0] * 0.4
-        $v = 50 + ($v - 50) * $gain
-        $v += $Tone[3] * 0.4 * (1 - (Get-SmoothStep 0 0.6 $t))
-        $v += $Tone[2] * 0.4 * (Get-SmoothStep 0.4 1 $t)
-        $out[$i] = [int][Math]::Round([Math]::Min([double]100, [Math]::Max([double]0, [double]$v)))
+        $position = $i / [double]($n - 1)
+        $out[$i] = Get-TonedValue $Base[$i] $Tone $position
     }
     return , $out
+}
+
+function Get-BaseForTarget([int]$Wanted, [int[]]$Tone, [double]$Position, [int]$Current) {
+    $best = $Current
+    $bestMiss = [Math]::Abs((Get-TonedValue $Current $Tone $Position) - $Wanted)
+    for ($candidate = 0; $candidate -le 100; $candidate++) {
+        $miss = [Math]::Abs((Get-TonedValue $candidate $Tone $Position) - $Wanted)
+        if ($miss -lt $bestMiss) {
+            $best = $candidate
+            $bestMiss = $miss
+        } elseif ($miss -eq $bestMiss) {
+            if ([Math]::Abs($candidate - $Current) -lt [Math]::Abs($best - $Current)) {
+                $best = $candidate
+            }
+        }
+    }
+    return $best
 }
 
 function Limit-Tone($Raw) {
@@ -268,6 +289,13 @@ if ($SelfTest) {
 
     $zero = [int[]](0, 0, 0, 0)
     Assert (((Get-TonedValues $v $zero) -join ',') -eq ($v -join ',')) 'zero tone does not change the curve'
+    Assert ((Get-BaseForTarget 66 $zero 0.5 10) -eq 66) 'without tone the stored value equals the wanted value'
+    $exposure = [int[]](40, 0, 0, 0)
+    $stored = Get-BaseForTarget 66 $exposure 0.5 10
+    Assert ((Get-TonedValue $stored $exposure 0.5) -eq 66) "with tone a reachable value is hit exactly (stored $stored)"
+    $dark = [int[]](-100, 0, 0, 0)
+    $stored = Get-BaseForTarget 100 $dark 0.5 10
+    Assert ($stored -eq 100 -and (Get-TonedValue $stored $dark 0.5) -eq 60) 'an unreachable value stops at the nearest reachable one'
     $t = Get-TonedValues $v ([int[]](0, 0, 0, 100))
     Assert ($t[0] -eq 50 -and $t[9] -eq 100) "shadows +100 raise the 0 lx band by 40 and leave the 3000 lx band ($($t -join ','))"
     $t = Get-TonedValues $BuiltIn['Gentle'] ([int[]](0, 0, -100, 0))
@@ -329,6 +357,25 @@ if ($SelfTest) {
         }
     }
     Assert ($bad -eq 0) "3000 random tone settings: result within 0-100, more exposure never darkens (errors: $bad)"
+    $bad = 0
+    for ($n = 0; $n -lt 400; $n++) {
+        $tone = [int[]]($rnd.Next(-100, 101), $rnd.Next(-100, 101), $rnd.Next(-100, 101), $rnd.Next(-100, 101))
+        $position = $rnd.Next(0, 10) / 9.0
+        $wanted = $rnd.Next(0, 101)
+        $current = $rnd.Next(0, 101)
+        $stored = Get-BaseForTarget $wanted $tone $position $current
+        $miss = [Math]::Abs((Get-TonedValue $stored $tone $position) - $wanted)
+        if ($stored -lt 0 -or $stored -gt 100) {
+            $bad++
+        }
+        for ($candidate = 0; $candidate -le 100; $candidate++) {
+            if ([Math]::Abs((Get-TonedValue $candidate $tone $position) - $wanted) -lt $miss) {
+                $bad++
+                break
+            }
+        }
+    }
+    Assert ($bad -eq 0) "400 random band edits under tone: the stored value is in range and no other value gets closer (errors: $bad)"
     $bad = 0
     for ($n = 0; $n -lt 3000; $n++) {
         $vals = New-Object int[] 10
@@ -1089,6 +1136,23 @@ $Xaml = @'
         </Setter.Value>
       </Setter>
     </Style>
+    <Style x:Key="Step" TargetType="RepeatButton">
+      <Setter Property="Focusable" Value="False"/>
+      <Setter Property="Width" Value="14"/>
+      <Setter Property="Height" Value="20"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Delay" Value="400"/>
+      <Setter Property="Interval" Value="70"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RepeatButton">
+            <Border Background="Transparent">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style x:Key="Blank" TargetType="RepeatButton">
       <Setter Property="Focusable" Value="False"/><Setter Property="IsHitTestVisible" Value="False"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></Setter.Value></Setter>
@@ -1789,13 +1853,64 @@ function Get-PctFromY([double]$Y, [double]$H) {
     return [int][Math]::Round([Math]::Min([double]100, [Math]::Max([double]0, [double]$p)))
 }
 
+function New-StepButton([int]$Index, [int]$Delta) {
+    $arrow = New-Object Windows.Shapes.Path
+    if ($Delta -gt 0) {
+        $arrow.Data = [Windows.Media.Geometry]::Parse('M0,3 L3,0 L6,3')
+        $name = 'Increase brightness at {0} lx' -f $BandLux[$Index]
+    } else {
+        $arrow.Data = [Windows.Media.Geometry]::Parse('M0,0 L3,3 L6,0')
+        $name = 'Decrease brightness at {0} lx' -f $BandLux[$Index]
+    }
+    $arrow.StrokeThickness = 1.4
+    $arrow.Opacity = 0.8
+    $arrow.StrokeStartLineCap = 'Round'
+    $arrow.StrokeEndLineCap = 'Round'
+    $arrow.StrokeLineJoin = 'Round'
+    Use $arrow ([Windows.Shapes.Shape]::StrokeProperty) 'Muted'
+    $button = New-Object Windows.Controls.Primitives.RepeatButton
+    $button.Style = $window.Resources['Step']
+    $button.Content = $arrow
+    $button.Tag = @{
+        Index = $Index
+        Delta = $Delta
+    }
+    $button.ToolTip = $name
+    [Windows.Automation.AutomationProperties]::SetName($button, $name)
+    $button.Add_Click({
+        param($sender, $e)
+        $slider = $Sliders[$sender.Tag.Index]
+        $next = $slider.Value + $sender.Tag.Delta
+        if ($next -ge 0 -and $next -le 100) {
+            $slider.Value = $next
+        }
+    })
+    $button.Add_MouseEnter({
+        param($sender, $e)
+        Use $sender.Content ([Windows.Shapes.Shape]::StrokeProperty) 'Text'
+    })
+    $button.Add_MouseLeave({
+        param($sender, $e)
+        Use $sender.Content ([Windows.Shapes.Shape]::StrokeProperty) 'Muted'
+    })
+    return $button
+}
+
 for ($i = 0; $i -lt $BandLux.Length; $i++) {
     $lbl = New-Object Windows.Controls.TextBlock
     $lbl.TextAlignment = 'Center'
+    $lbl.VerticalAlignment = 'Center'
+    $lbl.Width = 36
     $lbl.FontWeight = 'SemiBold'
     $lbl.FontSize = 13
     [Windows.Documents.Typography]::SetNumeralAlignment($lbl, 'Tabular')
-    [void]$valueRow.Children.Add($lbl)
+    $cell = New-Object Windows.Controls.StackPanel
+    $cell.Orientation = 'Horizontal'
+    $cell.HorizontalAlignment = 'Center'
+    [void]$cell.Children.Add((New-StepButton $i -1))
+    [void]$cell.Children.Add($lbl)
+    [void]$cell.Children.Add((New-StepButton $i 1))
+    [void]$valueRow.Children.Add($cell)
     $ValueLabels += $lbl
 
     $s = New-Object Windows.Controls.Slider
@@ -1863,7 +1978,7 @@ for ($i = 0; $i -lt $BandLux.Length; $i++) {
             Update-Band $i
             Update-Curve
             if (-not $Suppress) {
-                Save-ManualEdit
+                Save-ManualEdit $i
             }
         })
     $s.Add_GotKeyboardFocus({
@@ -2226,14 +2341,17 @@ function Enter-Editable {
     return $true
 }
 
-function Save-ManualEdit {
+function Save-ManualEdit([int]$Index) {
     if (-not (Enter-Editable)) {
         return
     }
-    $Active.Values = [int[]]$Values.Clone()
-    if (($Active.Tone -join ',') -ne '0,0,0,0') {
-        $Active.Tone = [int[]](0, 0, 0, 0)
-        Sync-ToneSliders
+    $position = $Index / [double]($BandLux.Length - 1)
+    $Active.Values[$Index] = Get-BaseForTarget $Values[$Index] $Active.Tone $position $Active.Values[$Index]
+    $reached = Get-TonedValue $Active.Values[$Index] $Active.Tone $position
+    if ($reached -ne $Values[$Index]) {
+        $script:Suppress = $true
+        $Sliders[$Index].Value = $reached
+        $script:Suppress = $false
     }
     Push-Values
 }

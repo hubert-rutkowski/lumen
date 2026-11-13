@@ -3,6 +3,16 @@
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-11-13
+
+### Added
+
+- Small arrows next to each band value change it one percent per click; holding an arrow repeats.
+
+### Changed
+
+- Moving a band no longer resets the tone sliders. The tone adjustment stays in place and the band stores the value needed to reach the chosen brightness.
+
 ## [1.0.1] - 2026-11-13
 
 ### Fixed
@@ -22,5 +32,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Recovery from a damaged settings file with a backup copy.
 - Built-in self-test and dry-run mode.
 
+[1.1.0]: https://github.com/hubert-rutkowski/lumen/releases/tag/v1.1.0
 [1.0.1]: https://github.com/hubert-rutkowski/lumen/releases/tag/v1.0.1
 [1.0.0]: https://github.com/hubert-rutkowski/lumen/releases/tag/v1.0.0
