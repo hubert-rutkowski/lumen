@@ -43,9 +43,9 @@ Closing the window keeps Lumen running in the tray. To quit, use **Quit** in the
 
 ## Usage
 
-Drag a band to set the brightness for that light level. The dashed line and the dot mark the current reading, so the band next to it is the one that changes what you see now.
+Drag a band to set the brightness for that light level, or click the small arrows next to its value to change it one percent at a time. The dashed line and the dot mark the current reading, so the band next to it is the one that changes what you see now.
 
-The tone sliders below the curve apply on top of the profile. Double-click a slider to reset it. Moving a band by hand after a tone adjustment stores the result as the new curve.
+The tone sliders below the curve apply on top of the profile and stay in place when you move a band. Double-click a slider to reset it. When a tone adjustment limits how far a band can go, the band stops at the nearest value it can reach.
 
 The built-in profiles, *Windows* and *Gentle*, are templates: the first change creates an editable copy.
 
