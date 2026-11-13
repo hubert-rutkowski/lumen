@@ -2,6 +2,7 @@
 
 Automatic screen brightness for Windows laptops, driven by a curve you shape yourself.
 
+[![Release](https://img.shields.io/github/v/release/hubert-rutkowski/lumen)](https://github.com/hubert-rutkowski/lumen/releases/latest)
 [![License](https://img.shields.io/github/license/hubert-rutkowski/lumen)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%2011-blue)
 
@@ -32,7 +33,7 @@ Windows adjusts brightness to ambient light along a fixed curve that cannot be c
 
 ## Getting started
 
-1. Download the [latest version](https://github.com/hubert-rutkowski/lumen/archive/refs/heads/main.zip) as a ZIP file and extract it anywhere, or clone the repository.
+1. Download [`Lumen.zip`](https://github.com/hubert-rutkowski/lumen/releases/latest/download/Lumen.zip) from the [latest release](https://github.com/hubert-rutkowski/lumen/releases/latest) and extract it anywhere.
 2. Turn off the built-in automatic brightness in **Settings > System > Display > Brightness > Change brightness automatically when lighting changes**. Otherwise the two mechanisms keep correcting each other.
 3. Run `Lumen.cmd`.
 
