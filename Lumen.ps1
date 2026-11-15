@@ -71,29 +71,45 @@ function Get-Median([double[]]$Items) {
     return ($s[$m - 1] + $s[$m]) / 2
 }
 
-function Get-NextBrightness([int]$Current, [int]$Target, [int]$Speed) {
-    $d = $Target - $Current
-    if ($d -eq 0) {
-        return $Current
+function Get-RampPosition([double]$Position, [int]$Target, [int]$Speed, [double]$ElapsedMs) {
+    $move = 0.2 * $Speed * $ElapsedMs / 1000
+    $distance = $Target - $Position
+    if ([Math]::Abs($distance) -le $move) {
+        return [double]$Target
     }
-    $step = 1
-    if ($Speed -ge 3) {
-        $gain = 0.14
-        if ($d -gt 0) {
-            $gain = 0.30
-        }
-        $step = [int][Math]::Max([double]1, [Math]::Ceiling([Math]::Abs($d) * $gain))
+    if ($distance -gt 0) {
+        return $Position + $move
     }
-    if ($d -gt 0) {
-        return [Math]::Min($Target, $Current + $step)
-    }
-    return [Math]::Max($Target, $Current - $step)
+    return $Position - $move
 }
 
-function Get-StepInterval([int]$Speed) {
-    $table = 1000, 400, 110, 70, 40
-    $i = [Math]::Min(5, [Math]::Max(1, $Speed)) - 1
-    return $table[$i]
+function Get-RampPause([int]$Speed) {
+    $perPoint = 5000.0 / $Speed
+    return [int][Math]::Min([double]500, [Math]::Max([double]40, $perPoint))
+}
+
+function Get-SpeedPercent($Raw) {
+    $n = 0.0
+    if (-not [double]::TryParse([string]$Raw, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$n)) {
+        return 100
+    }
+    if ([double]::IsNaN($n)) {
+        return 100
+    }
+    if ($n -ge 1 -and $n -le 5 -and $n -eq [Math]::Floor($n)) {
+        $olderScale = 25, 50, 100, 200, 400
+        return $olderScale[[int]$n - 1]
+    }
+    $limited = [Math]::Min([double]1000, [Math]::Max([double]10, $n))
+    return [int][Math]::Round($limited)
+}
+
+function Convert-SliderToSpeed([double]$Slider) {
+    return [int][Math]::Round(100 * [Math]::Pow(10, $Slider))
+}
+
+function Convert-SpeedToSlider([int]$Speed) {
+    return [Math]::Log10($Speed / 100.0)
 }
 
 function Limit-Values($Raw) {
@@ -263,10 +279,10 @@ if ($SelfTest) {
     $fail = 0
     function Get-TransitionTime([int]$From, [int]$To, [int]$Speed) {
         $time = 0
-        $value = $From
-        while ($value -ne $To) {
-            $value = Get-NextBrightness $value $To $Speed
-            $time += Get-StepInterval $Speed
+        $position = [double]$From
+        while ($position -ne $To -and $time -lt 600000) {
+            $position = Get-RampPosition $position $To $Speed 10
+            $time += 10
         }
         return $time
     }
@@ -289,14 +305,29 @@ if ($SelfTest) {
     Assert ($mid -gt 10 -and $mid -lt 25) "lux 10 lies between the bands ($mid)"
     Assert ((Get-Median ([double[]](5, 900, 6))) -eq 6) 'the median rejects a spike'
     Assert ((Get-Median ([double[]](1, 2, 3, 4))) -eq 2.5) 'median of an even count'
-    Assert ((Get-NextBrightness 50 50 3) -eq 50) 'no step at the target'
-    Assert ((Get-NextBrightness 50 51 3) -eq 51) 'one step up'
-    Assert ((Get-NextBrightness 50 49 3) -eq 49) 'one step down'
-    Assert ((Get-NextBrightness 20 80 1) -eq 21 -and (Get-NextBrightness 80 20 2) -eq 79) 'slow speeds move one percent per step'
-    Assert ((Get-NextBrightness 20 80 3) -gt 21) 'medium speed takes larger steps on a large change'
-    Assert ((Get-TransitionTime 20 60 1) -ge 30000) "a 40 point change takes at least 30 s at very slow ($(Get-TransitionTime 20 60 1) ms)"
-    Assert ((Get-TransitionTime 20 60 2) -ge 12000) "a 40 point change takes at least 12 s at slow ($(Get-TransitionTime 20 60 2) ms)"
-    Assert ((Get-TransitionTime 20 60 3) -le 3000) "a 40 point change takes at most 3 s at medium ($(Get-TransitionTime 20 60 3) ms)"
+    Assert ((Get-RampPosition 50 50 100 1000) -eq 50) 'no move at the target'
+    Assert ((Get-RampPosition 20 60 100 1000) -eq 40) 'at 100% the brightness moves 20 points per second'
+    Assert ((Get-RampPosition 60 20 100 500) -eq 50) 'the brightness falls at the same rate as it rises'
+    Assert ((Get-RampPosition 20 60 50 1000) -eq 30) 'at 50% it moves half as fast'
+    Assert ((Get-RampPosition 59.5 60 400 1000) -eq 60) 'the move never passes the target'
+    Assert ([Math]::Abs((Get-RampPosition 0 100 101 1000) - 20.2) -lt 0.0001) 'one percent more speed moves one percent further'
+    Assert ([Math]::Abs((Get-TransitionTime 20 60 100) - 2000) -le 10) "a 40 point change takes 2 s at 100% ($(Get-TransitionTime 20 60 100) ms)"
+    Assert ([Math]::Abs((Get-TransitionTime 20 60 50) - 4000) -le 10) "a 40 point change takes 4 s at 50% ($(Get-TransitionTime 20 60 50) ms)"
+    Assert ([Math]::Abs((Get-TransitionTime 20 60 25) - 8000) -le 10) "a 40 point change takes 8 s at 25% ($(Get-TransitionTime 20 60 25) ms)"
+    Assert ([Math]::Abs((Get-TransitionTime 20 60 200) - 1000) -le 10) "a 40 point change takes 1 s at 200% ($(Get-TransitionTime 20 60 200) ms)"
+    Assert ((Get-RampPause 100) -eq 50 -and (Get-RampPause 10) -eq 500 -and (Get-RampPause 1000) -eq 40) 'the engine sleeps one point at a time, between 40 and 500 ms'
+    Assert ((Get-SpeedPercent 1) -eq 25 -and (Get-SpeedPercent 2) -eq 50 -and (Get-SpeedPercent 3) -eq 100 -and (Get-SpeedPercent 4) -eq 200 -and (Get-SpeedPercent 5) -eq 400) 'speeds saved by older versions are converted to percent'
+    Assert ((Get-SpeedPercent 75) -eq 75 -and (Get-SpeedPercent 150.6) -eq 151) 'a percent value is kept and rounded'
+    Assert ((Get-SpeedPercent 7) -eq 10 -and (Get-SpeedPercent 5000) -eq 1000 -and (Get-SpeedPercent -3) -eq 10) 'the speed is kept between 10% and 1000%'
+    Assert ((Get-SpeedPercent 'abc') -eq 100 -and (Get-SpeedPercent $null) -eq 100) 'an unreadable speed becomes 100%'
+    Assert ((Convert-SliderToSpeed 0) -eq 100 -and (Convert-SliderToSpeed -1) -eq 10 -and (Convert-SliderToSpeed 1) -eq 1000) 'the speed slider runs from 10% to 1000% with 100% in the middle'
+    $bad = 0
+    for ($percent = 10; $percent -le 1000; $percent++) {
+        if ((Convert-SliderToSpeed (Convert-SpeedToSlider $percent)) -ne $percent) {
+            $bad++
+        }
+    }
+    Assert ($bad -eq 0) "every speed from 10% to 1000% survives the slider conversion (errors: $bad)"
     Assert ($null -eq (Limit-Values @(1, 2, 3))) 'too few values are rejected'
     Assert ($null -eq (Limit-Values @(1, 2, 3, 4, 5, 6, 7, 8, 9, 'x'))) 'text is rejected'
     $lim = Limit-Values @(-5, 0, 10.6, 100, 250, 1, 2, 3, 4, 5)
@@ -433,12 +464,13 @@ if ($SelfTest) {
 
     $bad = 0
     for ($n = 0; $n -lt 2000; $n++) {
-        $c = $rnd.Next(0, 101)
+        $c = [double]$rnd.Next(0, 101)
         $t = $rnd.Next(0, 101)
-        $speed = $rnd.Next(1, 6)
+        $speed = $rnd.Next(10, 1001)
+        $elapsed = $rnd.Next(1, 2000)
         $steps = 0
-        while ($c -ne $t -and $steps -lt 200) {
-            $nx = Get-NextBrightness $c $t $speed
+        while ($c -ne $t -and $steps -lt 20000) {
+            $nx = Get-RampPosition $c $t $speed $elapsed
             if ([Math]::Abs($t - $nx) -ge [Math]::Abs($t - $c) -or $nx -lt 0 -or $nx -gt 100) {
                 $bad++
                 break
@@ -450,7 +482,7 @@ if ($SelfTest) {
             $bad++
         }
     }
-    Assert ($bad -eq 0) "2000 random transitions: every step moves closer and ends at the target (errors: $bad)"
+    Assert ($bad -eq 0) "2000 random transitions: every move gets closer and ends at the target (errors: $bad)"
 
     $bad = 0
     for ($n = 0; $n -lt 300; $n++) {
@@ -525,7 +557,7 @@ function Read-Config([bool]$FromFile = $true) {
     $cfg = @{
         Profiles = (New-Object Collections.ArrayList)
         Default = $FallbackProfile
-        Speed = 3
+        Speed = 100
         Enabled = $true
         Theme = ''
         Problem = ''
@@ -590,11 +622,9 @@ function Read-Config([bool]$FromFile = $true) {
                     }
                 }
             }
-            $sp = 0.0
-            if ([double]::TryParse([string]$raw.speed, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$sp) -and
-                $sp -eq [Math]::Floor($sp) -and $sp -ge 1 -and $sp -le 5) {
-                    $cfg.Speed = [int]$sp
-                }
+            if ($null -ne $raw.speed) {
+                $cfg.Speed = Get-SpeedPercent $raw.speed
+            }
             if ($raw.enabled -is [bool]) {
                 $cfg.Enabled = $raw.enabled
             }
@@ -657,11 +687,14 @@ function Select-Panel($All) {
     return $list[0]
 }
 function Read-Brightness {
-    $o = Select-Panel (Get-WmiObject -Namespace root\wmi -Class WmiMonitorBrightness -ErrorAction Stop)
-    if ($null -eq $o) {
+    if ($null -eq $script:panel) {
+        $script:panel = Select-Panel (Get-WmiObject -Namespace root\wmi -Class WmiMonitorBrightness -ErrorAction Stop)
+    }
+    if ($null -eq $script:panel) {
         throw 'No display with brightness control'
     }
-    return [int]$o.CurrentBrightness
+    $script:panel.Get()
+    return [int]$script:panel.CurrentBrightness
 }
 
 $listenerSource = @"
@@ -677,6 +710,7 @@ public static void Attach(object sensor) {
 $clock = [Diagnostics.Stopwatch]::StartNew()
 $sensor = $null
 $methods = $null
+$panel = $null
 $samples = New-Object 'System.Collections.Generic.List[double]'
 $applied = -1
 $settled = -1
@@ -685,7 +719,9 @@ $version = -1
 $pendingDir = 0
 $pendingSince = 0
 $nextSample = 0
-$nextStep = 0
+$position = 0.0
+$lastMove = 0
+$moving = $false
 $nextCheck = 0
 $nextRetry = 0
 $holdUntil = 0
@@ -695,7 +731,10 @@ $nullReads = 0
 try {
     while (-not $Shared.Quit) {
         $now = $clock.ElapsedMilliseconds
-        $pause = 120
+        $pause = 1000
+        if ($Shared.Visible) {
+            $pause = 200
+        }
         if ($now -ge $failUntil) {
             try {
                 if (($null -eq $sensor -or $null -eq $methods) -and $now -ge $nextRetry) {
@@ -704,11 +743,11 @@ try {
                         [void][Windows.Devices.Sensors.LightSensor, Windows.Devices.Sensors, ContentType = WindowsRuntime]
                         $sensor = [Windows.Devices.Sensors.LightSensor]::GetDefault()
                         if ($null -ne $sensor) {
-                            $sensor.ReportInterval = [uint32][Math]::Max(250, $sensor.MinimumReportInterval)
+                            $sensor.ReportInterval = [uint32][Math]::Max(1000, $sensor.MinimumReportInterval)
                             Add-Type -Namespace Lumen -Name SensorListener -UsingNamespace System.Reflection -MemberDefinition $listenerSource
                             [Lumen.SensorListener]::Attach($sensor)
                             $samples.Clear()
-                            $nextSample = $clock.ElapsedMilliseconds + 1000
+                            $nextSample = $clock.ElapsedMilliseconds + 1500
                         }
                     }
                     if ($null -eq $methods) {
@@ -728,7 +767,7 @@ try {
                 }
                 else {
                     if ($now -ge $nextSample) {
-                        $nextSample = $now + 400
+                        $nextSample = $now + 1000
                         $r = $sensor.GetCurrentReading()
                         if ($null -eq $r) {
                             $nullReads++
@@ -736,7 +775,7 @@ try {
                         else {
                             $nullReads = 0
                             $samples.Add([double]$r.IlluminanceInLux)
-                            while ($samples.Count -gt 5) {
+                            while ($samples.Count -gt 3) {
                                 $samples.RemoveAt(0)
                             }
                             if ($samples.Count -ge 3) {
@@ -745,7 +784,7 @@ try {
                         }
                     }
 
-                    if ($nullReads -ge 12) {
+                    if ($nullReads -ge 5) {
                         $Shared.Status = 'no-reading'
                     }
                     elseif ($samples.Count -ge 3) {
@@ -764,7 +803,7 @@ try {
                         $Shared.Target = $target
 
                         if ($now -ge $nextCheck -and ($applied -eq $target -or -not $Shared.Enabled)) {
-                            $nextCheck = $now + 2000
+                            $nextCheck = $now + 5000
                             $actual = Read-Brightness
                             if (-not $Shared.Enabled) {
                                 $applied = $actual
@@ -783,23 +822,31 @@ try {
 
                         if ($Shared.Enabled) {
                             if ($applied -ne $target -and $now -ge $holdUntil) {
-                                $pause = 30
-                                if ($now -ge $nextStep) {
-                                    $nextStep = $now + (Get-StepInterval $Shared.Speed)
-                                    if ($Shared.DryRun) {
-                                        $applied = Read-Brightness
-                                        $pause = 120
-                                    } else {
-                                        $next = Get-NextBrightness $applied $target $Shared.Speed
+                                if ($Shared.DryRun) {
+                                    $applied = Read-Brightness
+                                } else {
+                                    if (-not $moving) {
+                                        $moving = $true
+                                        $position = [double]$applied
+                                        $lastMove = $now
+                                    }
+                                    $position = Get-RampPosition $position $target $Shared.Speed ($now - $lastMove)
+                                    $lastMove = $now
+                                    $next = [int][Math]::Round($position)
+                                    if ($next -ne $applied) {
                                         [void]$methods.WmiSetBrightness(0, [byte]$next)
                                         $applied = $next
                                         $settled = -1
-                                        $nextCheck = $now + 2000
+                                        $nextCheck = $now + 5000
                                     }
+                                    $pause = Get-RampPause $Shared.Speed
                                 }
+                            } else {
+                                $moving = $false
                             }
                             $Shared.Status = 'ok'
                         } else {
+                            $moving = $false
                             $Shared.Status = 'paused'
                         }
                         $Shared.Applied = $applied
@@ -816,13 +863,14 @@ try {
                 }
                 $sensor = $null
                 $methods = $null
+                $panel = $null
                 $samples.Clear()
                 $nullReads = 0
                 $failUntil = $now + 5000
                 $nextRetry = $failUntil
             }
         }
-        Start-Sleep -Milliseconds $pause
+        [Threading.Thread]::Sleep($pause)
     }
 } finally {
     if ($null -ne $sensor) {
@@ -841,6 +889,7 @@ function Start-Engine([int[]]$Values, [int]$Speed, [bool]$Enabled, [bool]$Dry) {
             Version = 0
             Quit = $false
             DryRun = $Dry
+            Visible = $false
             Lux = [double]::NaN
             Target = -1
             Applied = -1
@@ -1601,19 +1650,19 @@ $Xaml = @'
 
           <StackPanel Grid.Row="4">
             <Grid>
-              <TextBlock Text="Transition speed"/>
-              <TextBlock x:Name="SpeedText" Style="{StaticResource Small}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Text="medium"/>
+              <TextBlock Text="Transition speed" VerticalAlignment="Center"/>
+              <StackPanel x:Name="SpeedCell" Orientation="Horizontal" HorizontalAlignment="Right"/>
             </Grid>
-            <Slider x:Name="SpeedSlider" Style="{StaticResource Range}" Minimum="1" Maximum="5" SmallChange="1" LargeChange="1"
-                    IsSnapToTickEnabled="True" TickFrequency="1" Margin="0,8,0,0" AutomationProperties.Name="Brightness transition speed"/>
-            <Grid Margin="0,16,0,0">
+            <Slider x:Name="SpeedSlider" Style="{StaticResource Range}" Minimum="-1" Maximum="1" SmallChange="0.01" LargeChange="0.1"
+                    Margin="0,6,0,0" AutomationProperties.Name="Brightness transition speed"/>
+            <Grid Margin="0,12,0,0">
               <TextBlock Text="Start at sign-in" VerticalAlignment="Center"/>
               <ToggleButton x:Name="AutostartBox" Style="{StaticResource Switch}" HorizontalAlignment="Right"
                             AutomationProperties.Name="Start at sign-in"/>
             </Grid>
           </StackPanel>
 
-          <TextBlock Grid.Row="5" Style="{StaticResource Small}" TextWrapping="Wrap" LineHeight="17" Margin="0,16,0,0" VerticalAlignment="Top"
+          <TextBlock Grid.Row="5" Style="{StaticResource Small}" TextWrapping="Wrap" LineHeight="17" Margin="0,10,0,0" VerticalAlignment="Top"
                      Text="Turn off automatic brightness in Windows, otherwise the two will keep correcting each other."/>
 
           <Grid Grid.Row="6" Margin="0,12,0,0">
@@ -1887,14 +1936,12 @@ function Get-PctFromY([double]$Y, [double]$H) {
     return [int][Math]::Round([Math]::Min([double]100, [Math]::Max([double]0, [double]$p)))
 }
 
-function New-StepButton([int]$Index, [int]$Delta) {
+function New-StepArrow([int]$Delta, [string]$Name) {
     $arrow = New-Object Windows.Shapes.Path
     if ($Delta -gt 0) {
         $arrow.Data = [Windows.Media.Geometry]::Parse('M0,3 L3,0 L6,3')
-        $name = 'Increase brightness at {0} lx' -f $BandLux[$Index]
     } else {
         $arrow.Data = [Windows.Media.Geometry]::Parse('M0,0 L3,3 L6,0')
-        $name = 'Decrease brightness at {0} lx' -f $BandLux[$Index]
     }
     $arrow.StrokeThickness = 1.4
     $arrow.Opacity = 0.8
@@ -1905,20 +1952,8 @@ function New-StepButton([int]$Index, [int]$Delta) {
     $button = New-Object Windows.Controls.Primitives.RepeatButton
     $button.Style = $window.Resources['Step']
     $button.Content = $arrow
-    $button.Tag = @{
-        Index = $Index
-        Delta = $Delta
-    }
-    $button.ToolTip = $name
-    [Windows.Automation.AutomationProperties]::SetName($button, $name)
-    $button.Add_Click({
-        param($sender, $e)
-        $slider = $Sliders[$sender.Tag.Index]
-        $next = $slider.Value + $sender.Tag.Delta
-        if ($next -ge 0 -and $next -le 100) {
-            $slider.Value = $next
-        }
-    })
+    $button.ToolTip = $Name
+    [Windows.Automation.AutomationProperties]::SetName($button, $Name)
     $button.Add_MouseEnter({
         param($sender, $e)
         Use $sender.Content ([Windows.Shapes.Shape]::StrokeProperty) 'Text'
@@ -1928,6 +1963,14 @@ function New-StepButton([int]$Index, [int]$Delta) {
         Use $sender.Content ([Windows.Shapes.Shape]::StrokeProperty) 'Muted'
     })
     return $button
+}
+
+function Step-Band([int]$Index, [int]$Delta) {
+    $slider = $Sliders[$Index]
+    $next = $slider.Value + $Delta
+    if ($next -ge 0 -and $next -le 100) {
+        $slider.Value = $next
+    }
 }
 
 for ($i = 0; $i -lt $BandLux.Length; $i++) {
@@ -1941,9 +1984,21 @@ for ($i = 0; $i -lt $BandLux.Length; $i++) {
     $cell = New-Object Windows.Controls.StackPanel
     $cell.Orientation = 'Horizontal'
     $cell.HorizontalAlignment = 'Center'
-    [void]$cell.Children.Add((New-StepButton $i -1))
+    $down = New-StepArrow -1 ('Decrease brightness at {0} lx' -f $BandLux[$i])
+    $down.Tag = $i
+    $down.Add_Click({
+        param($sender, $e)
+        Step-Band ([int]$sender.Tag) -1
+    })
+    $up = New-StepArrow 1 ('Increase brightness at {0} lx' -f $BandLux[$i])
+    $up.Tag = $i
+    $up.Add_Click({
+        param($sender, $e)
+        Step-Band ([int]$sender.Tag) 1
+    })
+    [void]$cell.Children.Add($down)
     [void]$cell.Children.Add($lbl)
-    [void]$cell.Children.Add((New-StepButton $i 1))
+    [void]$cell.Children.Add($up)
     [void]$valueRow.Children.Add($cell)
     $ValueLabels += $lbl
 
@@ -2989,18 +3044,44 @@ $drawer.Add_SizeChanged({
     }
 })
 
-$SpeedNames = 'very slow', 'slow', 'medium', 'fast', 'very fast'
 $speedSlider = Find 'SpeedSlider'
-$speedSlider.Value = $cfg.Speed
-(Find 'SpeedText').Text = $SpeedNames[$cfg.Speed - 1]
-$speedSlider.Add_ValueChanged({
-        $cfg.Speed = [int]$speedSlider.Value
-        (Find 'SpeedText').Text = $SpeedNames[$cfg.Speed - 1]
-        if ($null -ne $Engine) {
-            $Engine.Shared.Speed = $cfg.Speed
-        }
+$speedText = New-Object Windows.Controls.TextBlock
+$speedText.Style = $window.Resources['Small']
+$speedText.Width = 44
+$speedText.TextAlignment = 'Center'
+$speedText.VerticalAlignment = 'Center'
+[Windows.Documents.Typography]::SetNumeralAlignment($speedText, 'Tabular')
+$speedDown = New-StepArrow -1 'Decrease transition speed'
+$speedUp = New-StepArrow 1 'Increase transition speed'
+$speedCell = Find 'SpeedCell'
+[void]$speedCell.Children.Add($speedDown)
+[void]$speedCell.Children.Add($speedText)
+[void]$speedCell.Children.Add($speedUp)
+$SpeedBusy = $false
+
+function Set-Speed([int]$Percent, [bool]$Save) {
+    $limited = [Math]::Min(1000, [Math]::Max(10, $Percent))
+    $cfg.Speed = $limited
+    $speedText.Text = ('{0}%' -f $limited)
+    $script:SpeedBusy = $true
+    $speedSlider.Value = Convert-SpeedToSlider $limited
+    $script:SpeedBusy = $false
+    if ($null -ne $Engine) {
+        $Engine.Shared.Speed = $limited
+    }
+    if ($Save) {
         Request-Save
-    })
+    }
+}
+
+Set-Speed $cfg.Speed $false
+$speedSlider.Add_ValueChanged({
+    if (-not $SpeedBusy) {
+        Set-Speed (Convert-SliderToSpeed $speedSlider.Value) $true
+    }
+})
+$speedDown.Add_Click({ Set-Speed ($cfg.Speed - 1) $true })
+$speedUp.Add_Click({ Set-Speed ($cfg.Speed + 1) $true })
 
 $powerBtn = Find 'PowerBtn'
 $powerBtn.IsChecked = $cfg.Enabled
@@ -3330,8 +3411,10 @@ $Engine = Start-Engine $Values $cfg.Speed $cfg.Enabled $false
 
 $externalSeen = 0
 $externalTimes = New-Object 'System.Collections.Generic.List[datetime]'
+$uiClock = [Diagnostics.Stopwatch]::StartNew()
+$nextHistory = 0
 $timer = New-Object Windows.Threading.DispatcherTimer
-$timer.Interval = [TimeSpan]::FromMilliseconds(200)
+$timer.Interval = [TimeSpan]::FromMilliseconds(1000)
 $timer.Add_Tick({
         $s = $Engine.Shared
         $State.Lux = $s.Lux
@@ -3358,16 +3441,24 @@ $timer.Add_Tick({
                 Show-Toast 'Something else is changing the screen brightness. Turn off automatic brightness in Windows display settings.'
             }
         }
+        if ($uiClock.ElapsedMilliseconds -ge $nextHistory) {
+            $script:nextHistory = $uiClock.ElapsedMilliseconds + 1000
+            Add-History
+        }
         if ($window.IsVisible) {
             Update-Live
         }
     })
 $timer.Start()
 
-$histTimer = New-Object Windows.Threading.DispatcherTimer
-$histTimer.Interval = [TimeSpan]::FromSeconds(1)
-$histTimer.Add_Tick({ Add-History })
-$histTimer.Start()
+$window.Add_IsVisibleChanged({
+    $Engine.Shared.Visible = $window.IsVisible
+    if ($window.IsVisible) {
+        $timer.Interval = [TimeSpan]::FromMilliseconds(250)
+    } else {
+        $timer.Interval = [TimeSpan]::FromMilliseconds(1000)
+    }
+})
 
 $app = New-Object Windows.Application
 $app.ShutdownMode = 'OnExplicitShutdown'

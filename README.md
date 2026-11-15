@@ -16,7 +16,8 @@ Windows adjusts brightness to ambient light along a fixed curve that cannot be c
 - **Tone controls** - exposure, contrast, highlights and shadows reshape the whole curve at once, the way photo editing does.
 - **Profiles** - save, rename and delete named curves, and choose the one loaded at startup.
 - **Live readouts** - current light and brightness in the title bar, three minutes of history in the side panel.
-- **Smooth transitions** - five speeds, with filtering that ignores brief flicker.
+- **Smooth transitions** - an adjustable speed from 10% to 1000%, with filtering that ignores brief flicker.
+- **Light on the battery** - reads the sensor once a second and sleeps in between.
 - **Stays out of the way** - lives in the tray, optionally starts at sign-in, dark and light theme.
 - **Nothing to install** - a single script. No administrator rights, no services, no registry changes.
 
