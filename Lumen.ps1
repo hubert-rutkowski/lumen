@@ -71,16 +71,19 @@ function Get-Median([double[]]$Items) {
     return ($s[$m - 1] + $s[$m]) / 2
 }
 
-function Get-NextBrightness([int]$Current, [int]$Target) {
+function Get-NextBrightness([int]$Current, [int]$Target, [int]$Speed) {
     $d = $Target - $Current
     if ($d -eq 0) {
         return $Current
     }
-    $gain = 0.14
-    if ($d -gt 0) {
-        $gain = 0.30
+    $step = 1
+    if ($Speed -ge 3) {
+        $gain = 0.14
+        if ($d -gt 0) {
+            $gain = 0.30
+        }
+        $step = [int][Math]::Max([double]1, [Math]::Ceiling([Math]::Abs($d) * $gain))
     }
-    $step = [int][Math]::Max([double]1, [Math]::Ceiling([Math]::Abs($d) * $gain))
     if ($d -gt 0) {
         return [Math]::Min($Target, $Current + $step)
     }
@@ -88,7 +91,7 @@ function Get-NextBrightness([int]$Current, [int]$Target) {
 }
 
 function Get-StepInterval([int]$Speed) {
-    $table = 260, 170, 110, 70, 40
+    $table = 1000, 400, 110, 70, 40
     $i = [Math]::Min(5, [Math]::Max(1, $Speed)) - 1
     return $table[$i]
 }
@@ -258,6 +261,15 @@ function New-ProfileObject([string]$Name, [int[]]$Values, [int[]]$Tone, [bool]$L
 
 if ($SelfTest) {
     $fail = 0
+    function Get-TransitionTime([int]$From, [int]$To, [int]$Speed) {
+        $time = 0
+        $value = $From
+        while ($value -ne $To) {
+            $value = Get-NextBrightness $value $To $Speed
+            $time += Get-StepInterval $Speed
+        }
+        return $time
+    }
     function Assert($Cond, $Name) {
         if ($Cond) {
             "ok    $Name"
@@ -277,9 +289,14 @@ if ($SelfTest) {
     Assert ($mid -gt 10 -and $mid -lt 25) "lux 10 lies between the bands ($mid)"
     Assert ((Get-Median ([double[]](5, 900, 6))) -eq 6) 'the median rejects a spike'
     Assert ((Get-Median ([double[]](1, 2, 3, 4))) -eq 2.5) 'median of an even count'
-    Assert ((Get-NextBrightness 50 50) -eq 50) 'no step at the target'
-    Assert ((Get-NextBrightness 50 51) -eq 51) 'one step up'
-    Assert ((Get-NextBrightness 50 49) -eq 49) 'one step down'
+    Assert ((Get-NextBrightness 50 50 3) -eq 50) 'no step at the target'
+    Assert ((Get-NextBrightness 50 51 3) -eq 51) 'one step up'
+    Assert ((Get-NextBrightness 50 49 3) -eq 49) 'one step down'
+    Assert ((Get-NextBrightness 20 80 1) -eq 21 -and (Get-NextBrightness 80 20 2) -eq 79) 'slow speeds move one percent per step'
+    Assert ((Get-NextBrightness 20 80 3) -gt 21) 'medium speed takes larger steps on a large change'
+    Assert ((Get-TransitionTime 20 60 1) -ge 30000) "a 40 point change takes at least 30 s at very slow ($(Get-TransitionTime 20 60 1) ms)"
+    Assert ((Get-TransitionTime 20 60 2) -ge 12000) "a 40 point change takes at least 12 s at slow ($(Get-TransitionTime 20 60 2) ms)"
+    Assert ((Get-TransitionTime 20 60 3) -le 3000) "a 40 point change takes at most 3 s at medium ($(Get-TransitionTime 20 60 3) ms)"
     Assert ($null -eq (Limit-Values @(1, 2, 3))) 'too few values are rejected'
     Assert ($null -eq (Limit-Values @(1, 2, 3, 4, 5, 6, 7, 8, 9, 'x'))) 'text is rejected'
     $lim = Limit-Values @(-5, 0, 10.6, 100, 250, 1, 2, 3, 4, 5)
@@ -418,9 +435,10 @@ if ($SelfTest) {
     for ($n = 0; $n -lt 2000; $n++) {
         $c = $rnd.Next(0, 101)
         $t = $rnd.Next(0, 101)
+        $speed = $rnd.Next(1, 6)
         $steps = 0
         while ($c -ne $t -and $steps -lt 200) {
-            $nx = Get-NextBrightness $c $t
+            $nx = Get-NextBrightness $c $t $speed
             if ([Math]::Abs($t - $nx) -ge [Math]::Abs($t - $c) -or $nx -lt 0 -or $nx -gt 100) {
                 $bad++
                 break
@@ -646,6 +664,16 @@ function Read-Brightness {
     return [int]$o.CurrentBrightness
 }
 
+$listenerSource = @"
+public static void OnReading(object sender, object args) {
+}
+public static void Attach(object sensor) {
+    EventInfo readingChanged = sensor.GetType().GetEvent("ReadingChanged");
+    Delegate handler = Delegate.CreateDelegate(readingChanged.EventHandlerType, typeof(SensorListener).GetMethod("OnReading"));
+    readingChanged.GetAddMethod().Invoke(sensor, new object[] { handler });
+}
+"@
+
 $clock = [Diagnostics.Stopwatch]::StartNew()
 $sensor = $null
 $methods = $null
@@ -677,6 +705,10 @@ try {
                         $sensor = [Windows.Devices.Sensors.LightSensor]::GetDefault()
                         if ($null -ne $sensor) {
                             $sensor.ReportInterval = [uint32][Math]::Max(250, $sensor.MinimumReportInterval)
+                            Add-Type -Namespace Lumen -Name SensorListener -UsingNamespace System.Reflection -MemberDefinition $listenerSource
+                            [Lumen.SensorListener]::Attach($sensor)
+                            $samples.Clear()
+                            $nextSample = $clock.ElapsedMilliseconds + 1000
                         }
                     }
                     if ($null -eq $methods) {
@@ -707,14 +739,16 @@ try {
                             while ($samples.Count -gt 5) {
                                 $samples.RemoveAt(0)
                             }
-                            $Shared.Lux = Get-Median ($samples.ToArray())
+                            if ($samples.Count -ge 3) {
+                                $Shared.Lux = Get-Median ($samples.ToArray())
+                            }
                         }
                     }
 
                     if ($nullReads -ge 12) {
                         $Shared.Status = 'no-reading'
                     }
-                    elseif ($samples.Count -gt 0) {
+                    elseif ($samples.Count -ge 3) {
                         $ver = $Shared.Version
                         $cand = [int][Math]::Round((Get-CurveValue $Shared.Values $Shared.Lux))
                         if ($ver -ne $version -or $target -lt 0) {
@@ -756,7 +790,7 @@ try {
                                         $applied = Read-Brightness
                                         $pause = 120
                                     } else {
-                                        $next = Get-NextBrightness $applied $target
+                                        $next = Get-NextBrightness $applied $target $Shared.Speed
                                         [void]$methods.WmiSetBrightness(0, [byte]$next)
                                         $applied = $next
                                         $settled = -1

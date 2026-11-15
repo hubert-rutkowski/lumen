@@ -3,6 +3,17 @@
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-11-15
+
+### Fixed
+
+- The brightness followed the ambient light only at startup. With the automatic brightness of Windows turned off, the sensor kept returning its first reading; Lumen now listens to the sensor so that readings keep arriving.
+- A false reading of 0 lx right after the sensor starts is no longer used.
+
+### Changed
+
+- The slow and very slow speeds are much slower: one percent every 0.4 s and every second.
+
 ## [1.1.0] - 2026-11-13
 
 ### Added
@@ -32,6 +43,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Recovery from a damaged settings file with a backup copy.
 - Built-in self-test and dry-run mode.
 
+[1.1.1]: https://github.com/hubert-rutkowski/lumen/releases/tag/v1.1.1
 [1.1.0]: https://github.com/hubert-rutkowski/lumen/releases/tag/v1.1.0
 [1.0.1]: https://github.com/hubert-rutkowski/lumen/releases/tag/v1.0.1
 [1.0.0]: https://github.com/hubert-rutkowski/lumen/releases/tag/v1.0.0
